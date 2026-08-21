@@ -219,3 +219,63 @@
   cursor: pointer;
   padding: 0;
 }
+
+/* Avatar + edit-profile additions */
+
+.account-header-main {
+  display: flex;
+  align-items: center;
+  gap: var(--s-4);
+}
+
+.account-avatar {
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--cream);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.account-avatar--lg {
+  width: 96px;
+  height: 96px;
+}
+
+.account-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.account-avatar span {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.25rem;
+  color: var(--ink-mute);
+}
+
+.account-edit-section {
+  padding: var(--s-7) var(--s-4) 0;
+}
+
+.edit-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-5);
+  max-width: 480px;
+  margin-top: var(--s-5);
+}
+
+.avatar-field {
+  display: flex;
+  align-items: center;
+  gap: var(--s-5);
+}
+
+.avatar-field .auth-hint {
+  margin: var(--s-2) 0 0;
+}
