@@ -259,9 +259,18 @@
 }
 
 .account-edit-section {
-  padding: var(--s-7) var(--s-4) 0;
+  padding: var(--s-7) 0 0;
+}
+.account-header-actions {
+  display: flex;
+  gap: var(--s-3);
+  flex-wrap: wrap;
 }
 
+.edit-profile-actions {
+  display: flex;
+  gap: var(--s-3);
+}
 .edit-profile-form {
   display: flex;
   flex-direction: column;
