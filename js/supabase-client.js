@@ -10,7 +10,7 @@
 // client-side code — Row Level Security policies (see
 // supabase/schema.sql) are what actually protect the data.
 const SUPABASE_URL = "https://qawsxrusvacdcdumzgsv.supabase.co";
-const SUPABASE_ANON_KEY = "sb_publishable_XQuiqZEEEYMfmEZ18W8K2w_p_OP8...";
+const SUPABASE_ANON_KEY = "sb_publishable_XQuiqZEEEYMfmEZ18W8K2w_p_OP8nSB";
 
 const sb =
   typeof window !== "undefined" &&
