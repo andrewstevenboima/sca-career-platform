@@ -9,8 +9,8 @@
 // (Project Settings → API). The anon key is safe to expose in
 // client-side code — Row Level Security policies (see
 // supabase/schema.sql) are what actually protect the data.
-const SUPABASE_URL = "REPLACE_WITH_YOUR_SUPABASE_PROJECT_URL";
-const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_SUPABASE_ANON_KEY";
+const SUPABASE_URL = "https://qawsxrusvacdcdumzgsv.supabase.co";
+const SUPABASE_ANON_KEY = "sb_publishable_XQuiqZEEEYMfmEZ18W8K2w_p_OP8...";
 
 const sb =
   typeof window !== "undefined" &&
