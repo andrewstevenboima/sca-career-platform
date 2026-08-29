@@ -118,6 +118,7 @@ document.addEventListener("DOMContentLoaded", async () => {
   wireAnnouncementBar();
   loadHomepagePreview();
   wireScrollReveal();
+  wireScrollIndicator();
 });
 
 // A single-post teaser pointing new/signed-out visitors toward the
@@ -235,6 +236,33 @@ function wireScrollReveal() {
     return;
   }
   items.forEach((el) => revealObserver.observe(el));
+}
+
+// Fade the scroll indicator out once the user has scrolled past it.
+// Uses IntersectionObserver on the section the indicator lives in so
+// we don't fire a scroll event on every pixel of movement.
+function wireScrollIndicator() {
+  const indicator = document.getElementById("scroll-indicator");
+  if (!indicator) return;
+
+  const section = indicator.closest("section");
+  if (!section) return;
+
+  // Hide immediately if the page is already scrolled (e.g. back-nav)
+  if (window.scrollY > 60) {
+    indicator.classList.add("is-hidden");
+    return;
+  }
+
+  // Watch the parent section — when it leaves the viewport upward,
+  // hide the indicator; when it re-enters, show it again.
+  const observer = new IntersectionObserver(
+    ([entry]) => {
+      indicator.classList.toggle("is-hidden", !entry.isIntersecting);
+    },
+    { threshold: 0.1 }
+  );
+  observer.observe(section);
 }
 
 // Default the country filter to a logged-in student's own profile
