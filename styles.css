@@ -1473,8 +1473,9 @@ em { font-style: italic; color: var(--gold); }
   .site-nav a {
     padding: 0.5rem 0;
   }
+  /* Keep sticky positioning on mobile so the header stays at the top */
   .site-header {
-    position: relative;
+    position: sticky;
   }
 }
 
@@ -1794,6 +1795,7 @@ em { font-style: italic; color: var(--gold); }
 
 .opp-card {
   cursor: pointer;
+  touch-action: pan-y; /* allow vertical scroll through cards on touch devices */
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
