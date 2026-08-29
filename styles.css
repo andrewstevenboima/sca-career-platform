@@ -68,6 +68,11 @@
 html {
   scroll-behavior: smooth;
   -webkit-text-size-adjust: 100%;
+  /* Needs to be here, not just on body: a position:fixed element
+     (the off-canvas nav drawer below) is clipped by the viewport's
+     own overflow, not its parent box's — setting this only on body
+     does nothing for a fixed element bleeding past the edge. */
+  overflow-x: hidden;
 }
 
 body {
@@ -79,6 +84,28 @@ body {
   background: var(--white);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* The off-canvas mobile nav drawer sits at right:0 with a real
+     320px width before its translateX(100%) slides it out of view —
+     transforms don't change layout, so without this every page was
+     710px wide (390px viewport + the drawer's own width) on mobile,
+     letting a stray horizontal swipe reveal blank space past the
+     right edge. Scoped overflow-x:auto containers (e.g. wide tables)
+     are unaffected — this only clips the document's own axis. */
+  overflow-x: hidden;
+  /* overscroll-behavior-y removed: setting this on body caused iOS Safari
+     and some Android browsers to swallow all scroll events, making the
+     entire page unscrollable on touch and mouse. The effect is instead
+     scoped to the nav drawer (.site-nav) where it is actually needed. */
+  /* Removes the gray tap-flash Chrome/Android draws on every link
+     and button by default — native apps don't have it, and with it
+     every tap reads as "web page" instead of "app". */
+  -webkit-tap-highlight-color: transparent;
+}
+
+a, button, [role="button"], input, select, textarea {
+  /* Skips the ~300ms double-tap-to-zoom delay on touch, so taps feel
+     immediate rather than laggy. */
+  touch-action: manipulation;
 }
 
 img {
@@ -225,6 +252,12 @@ em { font-style: italic; color: var(--gold); }
   backdrop-filter: saturate(180%) blur(12px);
   -webkit-backdrop-filter: saturate(180%) blur(12px);
   border-bottom: 1px solid var(--line);
+  /* Installed on iOS with a translucent status bar (see
+     apple-mobile-web-app-status-bar-style), page content draws
+     underneath it — without this the logo/nav would sit right up
+     against (or under) the status bar. A no-op in the regular
+     browser, where this env() value is just 0. */
+  padding-top: env(safe-area-inset-top);
 }
 
 .header-inner {
@@ -283,6 +316,7 @@ em { font-style: italic; color: var(--gold); }
   font-size: 0.9375rem;
   font-weight: 500;
   position: relative;
+  white-space: nowrap;
 }
 
 .site-nav a:not(.nav-cta):hover {
@@ -315,7 +349,6 @@ em { font-style: italic; color: var(--gold); }
 }
 
 @media (max-width: 720px) {
-  .site-nav a:not(.nav-cta) { display: none; }
   .brand-sub { display: none; }
 }
 
@@ -649,6 +682,11 @@ em { font-style: italic; color: var(--gold); }
   transition: all var(--dur) var(--ease);
   position: relative;
   animation: fadeUp 400ms var(--ease) backwards;
+  /* Allow vertical scroll through cards on touch — without this the
+     browser hesitates between "tap to expand" and "scroll" and often
+     blocks the scroll gesture entirely on mobile. */
+  touch-action: pan-y;
+  cursor: pointer;
 }
 
 .opp-card:hover {
@@ -1420,6 +1458,218 @@ em { font-style: italic; color: var(--gold); }
   border-radius: 1px;
 }
 
+/* --- "Community" nav dropdown --- */
+.nav-dropdown {
+  position: relative;
+}
+
+.nav-dropdown-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: none;
+  border: none;
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+.nav-dropdown-toggle:hover,
+.nav-dropdown-toggle.nav-active {
+  color: var(--gold);
+}
+
+.nav-dropdown-arrow {
+  font-size: 0.7em;
+  transition: transform var(--dur) var(--ease);
+}
+
+.nav-dropdown.is-open .nav-dropdown-arrow {
+  transform: rotate(180deg);
+}
+
+.nav-dropdown-menu {
+  display: none;
+  flex-direction: column;
+  position: absolute;
+  top: calc(100% + 0.75rem);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px -12px rgba(26, 26, 26, 0.18);
+  padding: var(--s-2);
+  min-width: 180px;
+  z-index: 200;
+}
+
+.nav-dropdown.is-open .nav-dropdown-menu {
+  display: flex;
+}
+
+.nav-dropdown-menu a {
+  padding: 0.5rem 0.75rem;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+.nav-dropdown-menu a:hover {
+  background: var(--cream);
+  color: var(--gold);
+}
+
+.nav-dropdown-menu a.nav-active {
+  color: var(--gold);
+  font-weight: 600;
+}
+
+/* --- Share menu --- */
+.share-menu {
+  position: fixed;
+  z-index: 500;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 12px 30px -12px rgba(26, 26, 26, 0.2);
+  display: flex;
+  flex-direction: column;
+  min-width: 160px;
+  padding: var(--s-2);
+}
+
+.share-menu a,
+.share-menu button {
+  padding: 0.5rem 0.75rem;
+  text-align: left;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  color: var(--ink);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.share-menu a:hover,
+.share-menu button:hover {
+  background: var(--cream);
+  color: var(--gold);
+}
+
+/* --- Notification bell --- */
+.notif-bell {
+  position: relative;
+}
+
+.notif-bell-toggle {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+  background: none;
+  border: none;
+  font-size: 1.15rem;
+  cursor: pointer;
+  padding: 0;
+  color: var(--ink);
+}
+
+.notif-bell-toggle .nav-badge {
+  position: absolute;
+  top: -6px;
+  right: -10px;
+  margin-left: 0;
+}
+
+.notif-panel {
+  display: none;
+  flex-direction: column;
+  position: absolute;
+  top: calc(100% + 0.75rem);
+  right: 0;
+  background: var(--white);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: 0 12px 30px -12px rgba(26, 26, 26, 0.18);
+  width: 320px;
+  max-width: 90vw;
+  max-height: 400px;
+  z-index: 300;
+}
+
+.notif-bell.is-open .notif-panel {
+  display: flex;
+}
+
+.notif-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--s-3) var(--s-4);
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+
+.notif-panel-head h3 {
+  margin: 0;
+  font-size: 0.9375rem;
+  font-family: var(--font-body);
+}
+
+.notif-mark-all {
+  background: none;
+  border: none;
+  color: var(--gold);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.notif-list {
+  overflow-y: auto;
+}
+
+.notif-item {
+  display: block;
+  width: 100%;
+  padding: var(--s-3) var(--s-4);
+  border: none;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  color: var(--ink);
+  background: none;
+  font-family: inherit;
+}
+
+.notif-item:hover {
+  background: var(--cream);
+}
+
+.notif-item.is-unread {
+  background: var(--gold-wash);
+  font-weight: 600;
+}
+
+.notif-item-time {
+  display: block;
+  margin-top: var(--s-1);
+  font-size: 0.6875rem;
+  color: var(--ink-mute);
+  font-weight: 400;
+}
+
+.notif-empty {
+  padding: var(--s-5) var(--s-4);
+  color: var(--ink-mute);
+  font-size: 0.875rem;
+  margin: 0;
+}
+
 /* --- Mobile nav toggle (hamburger) --- */
 .nav-toggle {
   display: none;
@@ -1450,32 +1700,121 @@ em { font-style: italic; color: var(--gold); }
   transform: translateY(-6px) rotate(-45deg);
 }
 
+.nav-backdrop {
+  display: none;
+}
+
+.nav-drawer-close {
+  display: none;
+}
+
 @media (max-width: 768px) {
   .nav-toggle {
     display: flex;
+    position: relative;
+    z-index: 270;
   }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(26, 26, 26, 0.5);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.3s var(--ease);
+    z-index: 250;
+  }
+  .nav-backdrop.is-open {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
   .site-nav {
-    display: none;
-    position: absolute;
-    top: 100%;
-    left: 0;
+    display: flex;
+    position: fixed;
+    top: 0;
     right: 0;
-    background: var(--cream);
+    height: 100vh;
+    width: min(320px, 85vw);
+    background: var(--white);
     flex-direction: column;
-    padding: 1rem 1.5rem;
-    gap: 1rem;
-    box-shadow: 0 4px 20px rgba(0,0,0,0.08);
-    z-index: 100;
+    align-items: stretch;
+    gap: 0;
+    padding: var(--s-6) var(--s-5);
+    padding-top: calc(var(--s-6) + env(safe-area-inset-top));
+    padding-bottom: calc(var(--s-5) + env(safe-area-inset-bottom));
+    box-shadow: -12px 0 40px rgba(0, 0, 0, 0.18);
+    transform: translateX(100%);
+    transition: transform 0.3s var(--ease);
+    z-index: 260;
+    overflow-y: auto;
+    /* Scoped here (not on body) so pull-to-refresh is blocked only
+       inside the drawer, not on the whole page. */
+    overscroll-behavior-y: contain;
   }
   .site-nav.is-open {
+    transform: translateX(0);
+  }
+
+  .nav-drawer-close {
     display: flex;
+    align-self: flex-end;
+    align-items: center;
+    justify-content: center;
+    width: 36px;
+    height: 36px;
+    background: var(--cream);
+    border: none;
+    border-radius: 50%;
+    font-size: 1.125rem;
+    line-height: 1;
+    cursor: pointer;
+    color: var(--ink);
+    margin: 0 0 var(--s-5);
   }
+
   .site-nav a {
-    padding: 0.5rem 0;
+    padding: 0.875rem 0;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
   }
-  /* Keep sticky positioning on mobile so the header stays at the top */
+
   .site-header {
-    position: sticky;
+    position: relative;
+  }
+
+  .nav-dropdown {
+    border-bottom: 1px solid var(--line);
+  }
+
+  .nav-dropdown-menu {
+    display: flex;
+    position: static;
+    transform: none;
+    box-shadow: none;
+    border: none;
+    background: none;
+    padding: 0 0 var(--s-2) var(--s-4);
+    min-width: 0;
+  }
+  .nav-dropdown-menu a {
+    border-bottom: none;
+    padding: 0.625rem 0;
+  }
+  .nav-dropdown-arrow {
+    display: none;
+  }
+  .nav-dropdown-toggle {
+    pointer-events: none;
+    font-weight: 600;
+    padding: 0.875rem 0;
+    width: 100%;
+  }
+
+  .notif-bell {
+    border-bottom: 1px solid var(--line);
+    padding: 0.875rem 0;
   }
 }
 
@@ -1557,6 +1896,157 @@ em { font-style: italic; color: var(--gold); }
   color: var(--ink-soft);
   line-height: 1.55;
   margin: 0;
+}
+
+/* --- Scroll-reveal animation --- */
+.reveal {
+  opacity: 0;
+  transform: translateY(18px);
+  transition: opacity 0.6s var(--ease), transform 0.6s var(--ease);
+}
+
+.reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.quick-grid .reveal:nth-child(2) { transition-delay: 0.08s; }
+.quick-grid .reveal:nth-child(3) { transition-delay: 0.16s; }
+.values-grid .reveal:nth-child(2) { transition-delay: 0.08s; }
+.values-grid .reveal:nth-child(3) { transition-delay: 0.16s; }
+.values-grid .reveal:nth-child(4) { transition-delay: 0.24s; }
+.home-preview-grid .reveal:nth-child(2) { transition-delay: 0.08s; }
+.home-preview-grid .reveal:nth-child(3) { transition-delay: 0.16s; }
+.home-preview-grid .reveal:nth-child(4) { transition-delay: 0.24s; }
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+
+/* --- Announcement bar --- */
+.announcement-bar {
+  background: var(--ink);
+  color: var(--cream);
+}
+
+.announcement-inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 0.625rem var(--s-5);
+}
+
+.announcement-icon {
+  flex-shrink: 0;
+}
+
+.announcement-text {
+  flex: 1;
+  color: var(--cream);
+  font-size: 0.875rem;
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.announcement-text:hover {
+  color: var(--gold-bright);
+}
+
+.announcement-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: var(--cream);
+  opacity: 0.7;
+  cursor: pointer;
+  font-size: 0.875rem;
+  padding: 0.25rem;
+}
+
+.announcement-close:hover {
+  opacity: 1;
+}
+
+/* --- Live opportunities preview (homepage) --- */
+.home-preview {
+  padding: 4rem 0;
+}
+
+.home-preview-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s-4);
+  margin-bottom: var(--s-6);
+  flex-wrap: wrap;
+}
+
+.home-preview-link {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  color: var(--gold);
+  white-space: nowrap;
+}
+
+.home-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: var(--s-5);
+}
+
+.home-preview-card {
+  background: #fff;
+  border: 1px solid rgba(184, 134, 11, 0.12);
+  border-radius: 8px;
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-2);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.home-preview-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.06);
+}
+
+.home-preview-cat {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+}
+
+.home-preview-card h3 {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  margin: 0;
+  line-height: 1.35;
+}
+
+.home-preview-card p {
+  font-size: 0.875rem;
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.home-preview-card .opp-apply {
+  margin-top: auto;
+  font-weight: 600;
+  font-size: 0.875rem;
+}
+
+@media (max-width: 640px) {
+  .announcement-text {
+    white-space: normal;
+  }
 }
 
 /* --- Home CTA section --- */
@@ -1795,7 +2285,6 @@ em { font-style: italic; color: var(--gold); }
 
 .opp-card {
   cursor: pointer;
-  touch-action: pan-y; /* allow vertical scroll through cards on touch devices */
   transition: box-shadow 0.2s ease, transform 0.2s ease;
 }
 
@@ -2033,7 +2522,7 @@ em { font-style: italic; color: var(--gold); }
 .rc-field select {
   width: 100%; min-height: 44px; padding: 0.5rem 0.7rem;
   border: 1px solid rgba(0,0,0,0.15); border-radius: 6px;
-  font-family: var(--font-body); font-size: 0.95rem; background: #fff;
+  font-family: var(--font-body); font-size: 1rem; background: #fff;
 }
 .rc-field select:focus { outline: none; border-color: var(--gold); }
 
@@ -2157,3 +2646,108 @@ em { font-style: italic; color: var(--gold); }
 .rc-card { padding: 1.1rem 1.25rem; }
 .rc-bar { margin-bottom: 0.2rem; }
 .rc-toggle { margin-top: 0.7rem; }
+
+/* -------------------------------------------------------------
+   Install-as-app banner (script.js wireInstallPrompt)
+   ------------------------------------------------------------- */
+.install-banner {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s-4);
+  transform: translateX(-50%);
+  z-index: 950;
+  width: min(560px, calc(100% - var(--s-4) * 2));
+  display: flex;
+  align-items: center;
+  gap: var(--s-3);
+  background: var(--ink);
+  color: var(--white);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 20px 50px -20px rgba(0, 0, 0, 0.55);
+  padding: var(--s-4);
+  padding-bottom: calc(var(--s-4) + env(safe-area-inset-bottom));
+  animation: install-banner-in var(--dur) var(--ease);
+}
+
+@keyframes install-banner-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .install-banner { animation: none; }
+}
+
+.install-banner-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius);
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.install-banner-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.install-banner-title {
+  font-weight: 600;
+  font-size: 0.9375rem;
+  margin: 0;
+  color: var(--white);
+}
+
+.install-banner-sub {
+  font-size: 0.8125rem;
+  color: rgba(255, 255, 255, 0.7);
+  margin: 2px 0 0;
+}
+
+.install-banner-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  flex-shrink: 0;
+}
+
+.install-banner-btn {
+  background: var(--gold-bright);
+  color: var(--ink);
+  border: none;
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.install-banner-btn:hover {
+  background: var(--gold-soft);
+}
+
+.install-banner-close {
+  background: none;
+  border: none;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 1.1rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: var(--s-2);
+}
+
+.install-banner-close:hover {
+  color: var(--white);
+}
+
+@media (max-width: 480px) {
+  .install-banner {
+    flex-wrap: wrap;
+  }
+  .install-banner-actions {
+    width: 100%;
+    justify-content: flex-end;
+  }
+}

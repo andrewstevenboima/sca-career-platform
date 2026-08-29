@@ -15,6 +15,30 @@ const FALLBACK_JSON = "opportunities.json";
 // scheduled scraper that regenerates the Sheet, nothing needs to
 // change here. The frontend always reads the latest rows.
 
+// Opportunities are prioritized by how recently they were added to
+// the platform. That relies on a "date_added" column existing in the
+// Sheet (Code.gs passes any column through verbatim by header name —
+// see getOpportunities() there) — accepts a couple of common aliases
+// in case the column ends up named slightly differently. Rows without
+// a parseable date sort after every dated row, in their original
+// (Sheet) order, rather than being scattered randomly or crashing.
+const RECENCY_FIELD_ALIASES = ["date_added", "posted_date", "date_posted", "added_at"];
+function recencyTimestamp(o) {
+  for (const field of RECENCY_FIELD_ALIASES) {
+    if (o[field]) {
+      const t = new Date(o[field]).getTime();
+      if (!Number.isNaN(t)) return t;
+    }
+  }
+  return -Infinity;
+}
+function sortByRecency(list) {
+  // Array.prototype.sort is a stable sort in every modern engine, so
+  // undated rows (all tied at -Infinity) keep their original relative
+  // order instead of being shuffled.
+  return [...list].sort((a, b) => recencyTimestamp(b) - recencyTimestamp(a));
+}
+
 /* -------------------------------------------------------------
    State
    ------------------------------------------------------------- */
@@ -59,22 +83,187 @@ document.addEventListener("DOMContentLoaded", async () => {
   // Wire mobile nav (all pages)
   wireMobileNav();
 
+  // Wire the "Community" nav dropdown (all pages)
+  wireNavDropdown();
+
   // Toggle "Log In" / "My Account" nav links (all pages)
   wireAuthNav();
+
+  // Notification bell (all pages)
+  wireNotifications();
+
+  // Install-as-app prompt + offline support (all pages)
+  registerServiceWorker();
+  wireInstallPrompt();
+
+  // Confirmation-link redirects can land on any page depending on the
+  // Supabase project's configured Site URL, so this check (and the
+  // flag it reads) has to run globally rather than on one page.
+  if (window.SCA && window.SCA.justConfirmedEmail) {
+    showToast("Email confirmed. You're all set, welcome to SCA Opportunities.");
+    history.replaceState(null, "", window.location.pathname);
+  }
 
   // Only wire opportunities logic if this page has the grid
   if (document.getElementById("opp-grid")) {
     await hydrateBookmarksFromAccount();
+    await applyProfileCountryDefault();
     wireEvents();
     applyURLParams();
     loadOpportunities();
   }
+
+  // Homepage-only, but harmless (no-ops) on every other page since
+  // each checks for its own element before doing anything.
+  wireAnnouncementBar();
+  loadHomepagePreview();
+  wireScrollReveal();
 });
+
+// A single-post teaser pointing new/signed-out visitors toward the
+// Common Room. Dismissal is remembered per-post (in localStorage) so
+// closing it doesn't hide the NEXT new post too.
+async function wireAnnouncementBar() {
+  const bar = document.getElementById("announcement-bar");
+  const link = document.getElementById("announcement-link");
+  const closeBtn = document.getElementById("announcement-close");
+  if (!bar || !window.SCA || !window.SCA.ready) return;
+
+  let post;
+  try {
+    post = await window.SCA.getLatestPostTeaser();
+  } catch (err) {
+    return;
+  }
+  if (!post) return;
+
+  let dismissedId = null;
+  try {
+    dismissedId = localStorage.getItem("sca_announcement_dismissed");
+  } catch (err) {
+    // Non-fatal — worst case the bar just isn't dismissible this session.
+  }
+  if (dismissedId === post.id) return;
+
+  link.textContent = `New in the Common Room: "${post.title}" — join the discussion →`;
+  link.href = `community.html?post=${encodeURIComponent(post.id)}`;
+  bar.hidden = false;
+
+  closeBtn.addEventListener("click", () => {
+    bar.hidden = true;
+    try {
+      localStorage.setItem("sca_announcement_dismissed", post.id);
+    } catch (err) {
+      // Non-fatal.
+    }
+  });
+}
+
+// Homepage "Live right now" strip — reuses the same opportunities
+// feed and live-status filter as opportunities.html, just capped to
+// a handful of picks.
+async function loadHomepagePreview() {
+  const section = document.getElementById("home-preview");
+  const grid = document.getElementById("home-preview-grid");
+  if (!section || !grid) return;
+
+  try {
+    let data;
+    const url =
+      typeof APPS_SCRIPT_URL !== "undefined" && APPS_SCRIPT_URL && !APPS_SCRIPT_URL.startsWith("REPLACE_")
+        ? `${APPS_SCRIPT_URL}?action=opportunities`
+        : "opportunities.json";
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      data = await res.json();
+    } catch (fetchErr) {
+      const res = await fetch("opportunities.json");
+      data = await res.json();
+    }
+
+    const list = sortByRecency(
+      (Array.isArray(data) ? data : data.opportunities || []).filter(
+        (o) => (o.status || "live").toLowerCase() === "live"
+      )
+    );
+    const picks = list.slice(0, 4);
+    if (!picks.length) return;
+
+    grid.innerHTML = picks
+      .map(
+        (o) => `
+      <article class="home-preview-card reveal">
+        <span class="home-preview-cat">${escapeHTML(o.category || "Opportunity")}</span>
+        <h3>${escapeHTML(o.title || "Untitled")}</h3>
+        ${o.organization ? `<p>${escapeHTML(o.organization)}</p>` : ""}
+        <a href="${safeHref(o.apply_link, "opportunities.html")}" target="_blank" rel="noopener" class="opp-apply">Apply →</a>
+      </article>
+    `
+      )
+      .join("");
+    section.hidden = false;
+    wireScrollReveal();
+  } catch (err) {
+    // Non-fatal — the homepage works fine without this bonus section.
+  }
+}
+
+// Fades/slides `.reveal` elements in as they scroll into view. Safe
+// to call more than once (e.g. after the preview grid injects new
+// `.reveal` cards) — already-observed elements just get skipped.
+const revealObserver =
+  "IntersectionObserver" in window
+    ? new IntersectionObserver(
+        (entries) => {
+          entries.forEach((entry) => {
+            if (entry.isIntersecting) {
+              entry.target.classList.add("is-visible");
+              revealObserver.unobserve(entry.target);
+            }
+          });
+        },
+        { threshold: 0.15 }
+      )
+    : null;
+
+function wireScrollReveal() {
+  const items = document.querySelectorAll(".reveal:not(.is-visible)");
+  if (!items.length) return;
+  if (!revealObserver) {
+    items.forEach((el) => el.classList.add("is-visible"));
+    return;
+  }
+  items.forEach((el) => revealObserver.observe(el));
+}
+
+// Default the country filter to a logged-in student's own profile
+// country, so they land on opportunities near them — never a hard
+// restriction, just a starting point they can clear with one click.
+// An explicit ?country= URL param (applied right after this, in
+// applyURLParams) always wins over this default.
+async function applyProfileCountryDefault() {
+  if (!currentUserId) return;
+  try {
+    const profile = await window.SCA.getProfile(currentUserId);
+    if (!profile?.country) return;
+    state.country = profile.country;
+    const pillWrap = document.getElementById("country-pill-wrap");
+    const pillName = document.getElementById("country-pill-name");
+    if (pillWrap && pillName) {
+      pillName.textContent = profile.country;
+      pillWrap.hidden = false;
+    }
+  } catch (err) {
+    // Not fatal — just skip the default if the profile fetch fails.
+  }
+}
 
 // Show "My Account" instead of "Log In" once a Supabase session exists
 function wireAuthNav() {
   const loginLink = document.getElementById("nav-login");
   const accountLink = document.getElementById("nav-account");
+  const unreadBadge = document.getElementById("nav-unread-badge");
   if (!loginLink && !accountLink) return;
   if (!window.SCA || !window.SCA.ready) return; // Supabase not configured yet
 
@@ -82,6 +271,16 @@ function wireAuthNav() {
     const loggedIn = !!session;
     if (loginLink) loginLink.hidden = loggedIn;
     if (accountLink) accountLink.hidden = !loggedIn;
+    if (unreadBadge && loggedIn) {
+      window.SCA.unreadMessageCount(session.user.id)
+        .then((count) => {
+          unreadBadge.hidden = !count;
+          unreadBadge.textContent = count > 9 ? "9+" : String(count);
+        })
+        .catch(() => {});
+    } else if (unreadBadge) {
+      unreadBadge.hidden = true;
+    }
   };
 
   window.SCA.getSession().then(paint);
@@ -104,16 +303,415 @@ async function hydrateBookmarksFromAccount() {
   }
 }
 
+// Self-contained (inline-styled) so it renders correctly on any page
+// regardless of which stylesheets that page happens to load.
+function showToast(message) {
+  const toast = document.createElement("div");
+  toast.textContent = message;
+  toast.setAttribute("role", "status");
+  Object.assign(toast.style, {
+    position: "fixed",
+    bottom: "24px",
+    left: "50%",
+    transform: "translateX(-50%)",
+    background: "#1A1A1A",
+    color: "#FDFBF5",
+    padding: "0.875rem 1.5rem",
+    borderRadius: "999px",
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
+    fontSize: "0.9375rem",
+    boxShadow: "0 12px 30px -12px rgba(0,0,0,0.4)",
+    zIndex: "1000",
+    maxWidth: "90vw",
+    textAlign: "center",
+  });
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 6000);
+}
+
+// "Community" nav dropdown (Common Room / Students / Messages)
+function wireNavDropdown() {
+  const dropdown = document.getElementById("nav-community-dropdown");
+  const toggle = document.getElementById("nav-dropdown-toggle");
+  if (!dropdown || !toggle) return;
+
+  toggle.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const isOpen = dropdown.classList.toggle("is-open");
+    toggle.setAttribute("aria-expanded", String(isOpen));
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!dropdown.contains(e.target)) {
+      dropdown.classList.remove("is-open");
+      toggle.setAttribute("aria-expanded", "false");
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") {
+      dropdown.classList.remove("is-open");
+      toggle.setAttribute("aria-expanded", "false");
+    }
+  });
+}
+
+// Share menu — used for profiles, posts, and comments. Tries the
+// device's native share sheet first (WhatsApp, Messages, etc. all
+// show up there automatically on mobile); falls back to a small
+// custom menu with direct platform links + copy-link on browsers
+// that don't support navigator.share (most desktop browsers).
+function shareContent(trigger, { url, text }) {
+  if (navigator.share) {
+    navigator.share({ text, url }).catch(() => {});
+    return;
+  }
+
+  document.querySelectorAll(".share-menu").forEach((el) => el.remove());
+
+  const menu = document.createElement("div");
+  menu.className = "share-menu";
+  const links = [
+    { label: "WhatsApp", href: `https://wa.me/?text=${encodeURIComponent(text + " " + url)}` },
+    { label: "X (Twitter)", href: `https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}` },
+    { label: "Facebook", href: `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(url)}` },
+    { label: "LinkedIn", href: `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}` },
+  ];
+  menu.innerHTML =
+    links.map((l) => `<a href="${l.href}" target="_blank" rel="noopener">${l.label}</a>`).join("") +
+    `<button type="button" class="share-menu-copy">Copy link</button>`;
+
+  document.body.appendChild(menu);
+  const rect = trigger.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + 6}px`;
+  menu.style.left = `${Math.min(rect.left, window.innerWidth - 200)}px`;
+
+  menu.querySelector(".share-menu-copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      showToast("Link copied.");
+    } catch (err) {
+      showToast("Couldn't copy the link.");
+    }
+    menu.remove();
+  });
+
+  menu.querySelectorAll("a").forEach((a) => a.addEventListener("click", () => menu.remove()));
+
+  setTimeout(() => {
+    document.addEventListener("click", function onDocClick(e) {
+      if (!menu.contains(e.target) && e.target !== trigger) {
+        menu.remove();
+        document.removeEventListener("click", onDocClick);
+      }
+    });
+  }, 0);
+}
+
+// Notification bell — @mentions from the Common Room. Runs on every
+// page since a mention can happen while the recipient is anywhere
+// on the site, not just on community.html.
+function wireNotifications() {
+  const bell = document.getElementById("notif-bell");
+  const toggle = document.getElementById("notif-bell-toggle");
+  const badge = document.getElementById("notif-unread-badge");
+  const list = document.getElementById("notif-list");
+  const empty = document.getElementById("notif-empty");
+  const markAllBtn = document.getElementById("notif-mark-all-read");
+  if (!bell || !window.SCA || !window.SCA.ready) return;
+
+  const profileCache = new Map();
+  async function getActor(userId) {
+    if (profileCache.has(userId)) return profileCache.get(userId);
+    try {
+      const profile = await window.SCA.getPublicProfile(userId);
+      profileCache.set(userId, profile);
+      return profile;
+    } catch (err) {
+      return null;
+    }
+  }
+
+  function messageFor(n, rawActorName) {
+    // rawActorName is another student's full_name — free text they
+    // chose at signup, not app-controlled — so it must be escaped
+    // before landing in the innerHTML this feeds below, same as
+    // every other rendering of a student's name in this app.
+    const actorName = escapeHTML(rawActorName);
+    switch (n.type) {
+      case "mention_post":
+        return `${actorName} mentioned you in a post`;
+      case "mention_comment":
+        return `${actorName} mentioned you in a comment`;
+      case "mention_all_post":
+        return `${actorName} mentioned everyone in a post`;
+      case "mention_all_comment":
+        return `${actorName} mentioned everyone in a comment`;
+      case "companion_added":
+        return `${actorName} added you as a Companion`;
+      default:
+        return `${actorName} mentioned you`;
+    }
+  }
+
+  function formatNotifTime(iso) {
+    const d = new Date(iso);
+    return (
+      d.toLocaleDateString("en-GB", { day: "numeric", month: "short" }) +
+      " · " +
+      d.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })
+    );
+  }
+
+  async function loadNotifications(userId) {
+    let notifications;
+    try {
+      notifications = await window.SCA.listNotifications(userId);
+    } catch (err) {
+      list.innerHTML = "";
+      empty.hidden = false;
+      empty.textContent = "Couldn't load notifications.";
+      return;
+    }
+    if (!notifications.length) {
+      list.innerHTML = "";
+      empty.hidden = false;
+      empty.textContent = "No notifications yet.";
+      return;
+    }
+    empty.hidden = true;
+    list.innerHTML = "";
+    for (const n of notifications) {
+      const actor = await getActor(n.actor_id);
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "notif-item" + (n.read_at ? "" : " is-unread");
+      item.innerHTML = `
+        ${messageFor(n, actor?.full_name || "A student")}
+        <span class="notif-item-time">${formatNotifTime(n.created_at)}</span>
+      `;
+      item.addEventListener("click", async () => {
+        if (!n.read_at) {
+          try {
+            await window.SCA.markNotificationRead(n.id);
+          } catch (err) {
+            // Non-fatal — the notification still opens either way.
+          }
+        }
+        if (n.type === "companion_added") {
+          window.location.href = `member.html?id=${encodeURIComponent(n.actor_id)}`;
+        } else {
+          window.location.href = n.post_id
+            ? `community.html?post=${encodeURIComponent(n.post_id)}`
+            : "community.html";
+        }
+      });
+      list.appendChild(item);
+    }
+  }
+
+  async function refreshBadge(userId) {
+    try {
+      const count = await window.SCA.unreadNotificationCount(userId);
+      badge.hidden = !count;
+      badge.textContent = count > 9 ? "9+" : String(count);
+    } catch (err) {
+      // Non-fatal — leave the badge at its previous state.
+    }
+  }
+
+  window.SCA.getSession().then((session) => {
+    if (!session) return;
+    bell.hidden = false;
+    refreshBadge(session.user.id);
+
+    toggle.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = bell.classList.toggle("is-open");
+      toggle.setAttribute("aria-expanded", String(isOpen));
+      if (isOpen) loadNotifications(session.user.id);
+    });
+
+    document.addEventListener("click", (e) => {
+      if (!bell.contains(e.target)) {
+        bell.classList.remove("is-open");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") {
+        bell.classList.remove("is-open");
+        toggle.setAttribute("aria-expanded", "false");
+      }
+    });
+
+    if (markAllBtn) {
+      markAllBtn.addEventListener("click", async () => {
+        try {
+          await window.SCA.markAllNotificationsRead(session.user.id);
+          list.querySelectorAll(".notif-item.is-unread").forEach((el) => el.classList.remove("is-unread"));
+          refreshBadge(session.user.id);
+        } catch (err) {
+          alert("Couldn't mark notifications as read.");
+        }
+      });
+    }
+  });
+}
+
+/* -------------------------------------------------------------
+   Install-as-app + offline support
+   ------------------------------------------------------------- */
+function registerServiceWorker() {
+  if (!("serviceWorker" in navigator)) return;
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/sw.js").catch(() => {
+      // Non-fatal — the site still works fully without offline support.
+    });
+  });
+}
+
+const INSTALL_DISMISS_KEY = "sca-install-dismissed-at";
+const INSTALL_DISMISS_COOLDOWN_DAYS = 14;
+
+function isRunningStandalone() {
+  return (
+    window.matchMedia("(display-mode: standalone)").matches ||
+    window.navigator.standalone === true // iOS Safari's own flag
+  );
+}
+
+function recentlyDismissedInstallPrompt() {
+  try {
+    const dismissedAt = Number(localStorage.getItem(INSTALL_DISMISS_KEY));
+    if (!dismissedAt) return false;
+    const daysSince = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
+    return daysSince < INSTALL_DISMISS_COOLDOWN_DAYS;
+  } catch (err) {
+    return false;
+  }
+}
+
+function markInstallPromptDismissed() {
+  try {
+    localStorage.setItem(INSTALL_DISMISS_KEY, String(Date.now()));
+  } catch (err) {
+    // Non-fatal — worst case the banner just reappears next visit.
+  }
+}
+
+function showInstallBanner({ title, sub, actionLabel, onAction }) {
+  if (document.querySelector(".install-banner")) return; // already showing
+
+  const banner = document.createElement("div");
+  banner.className = "install-banner";
+  banner.innerHTML = `
+    <img src="assets/icon-192.png" alt="" class="install-banner-icon" />
+    <div class="install-banner-body">
+      <p class="install-banner-title">${escapeHTML(title)}</p>
+      <p class="install-banner-sub">${escapeHTML(sub)}</p>
+    </div>
+    <div class="install-banner-actions">
+      ${actionLabel ? `<button type="button" class="install-banner-btn">${escapeHTML(actionLabel)}</button>` : ""}
+      <button type="button" class="install-banner-close" aria-label="Dismiss">✕</button>
+    </div>
+  `;
+  document.body.appendChild(banner);
+
+  if (actionLabel) {
+    banner.querySelector(".install-banner-btn").addEventListener("click", onAction);
+  }
+  banner.querySelector(".install-banner-close").addEventListener("click", () => {
+    markInstallPromptDismissed();
+    banner.remove();
+  });
+
+  return banner;
+}
+
+// Chrome/Edge/Android (and desktop Chrome) fire beforeinstallprompt
+// when their own installability heuristics are met; iOS never fires
+// it at all — "Add to Home Screen" only exists as a manual step from
+// the Share sheet — so it gets its own instructional banner below.
+function wireInstallPrompt() {
+  if (isRunningStandalone() || recentlyDismissedInstallPrompt()) return;
+
+  let deferredPrompt = null;
+  window.addEventListener("beforeinstallprompt", (event) => {
+    event.preventDefault();
+    deferredPrompt = event;
+    showInstallBanner({
+      title: "Install SCA Opportunities",
+      sub: "Add it to your home screen for one-tap access, even offline.",
+      actionLabel: "Install",
+      onAction: async () => {
+        if (!deferredPrompt) return;
+        deferredPrompt.prompt();
+        await deferredPrompt.userChoice;
+        deferredPrompt = null;
+        document.querySelector(".install-banner")?.remove();
+      },
+    });
+  });
+
+  window.addEventListener("appinstalled", () => {
+    document.querySelector(".install-banner")?.remove();
+    markInstallPromptDismissed();
+  });
+
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
+  if (isIOS) {
+    showInstallBanner({
+      title: "Install SCA Opportunities",
+      sub: "Tap the Share icon below, then “Add to Home Screen.”",
+      actionLabel: "Got it",
+      onAction: () => {
+        markInstallPromptDismissed();
+        document.querySelector(".install-banner")?.remove();
+      },
+    });
+  }
+}
+
 // Mobile hamburger toggle
 function wireMobileNav() {
   const toggle = document.getElementById("nav-toggle");
   const nav = document.getElementById("site-nav");
+  const backdrop = document.getElementById("nav-backdrop");
+  const closeBtn = document.getElementById("nav-drawer-close");
   if (!toggle || !nav) return;
+
+  function openDrawer() {
+    nav.classList.add("is-open");
+    toggle.setAttribute("aria-expanded", "true");
+    if (backdrop) backdrop.classList.add("is-open");
+    document.body.style.overflow = "hidden";
+  }
+
+  function closeDrawer() {
+    nav.classList.remove("is-open");
+    toggle.setAttribute("aria-expanded", "false");
+    if (backdrop) backdrop.classList.remove("is-open");
+    document.body.style.overflow = "";
+  }
+
   toggle.addEventListener("click", () => {
-    const expanded = toggle.getAttribute("aria-expanded") === "true";
-    toggle.setAttribute("aria-expanded", !expanded);
-    nav.classList.toggle("is-open");
+    if (nav.classList.contains("is-open")) closeDrawer();
+    else openDrawer();
   });
+
+  if (backdrop) backdrop.addEventListener("click", closeDrawer);
+  if (closeBtn) closeBtn.addEventListener("click", closeDrawer);
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeDrawer();
+  });
+
+  // Closing on link click matters here since the drawer is a fixed
+  // overlay now, not an inline panel — without this it would still
+  // be sitting open (mid-transition) during the page navigation.
+  nav.querySelectorAll("a").forEach((a) => a.addEventListener("click", closeDrawer));
 }
 
 // Apply ?filter=X or ?country=X from URL on page load
@@ -183,7 +781,7 @@ async function loadOpportunities() {
     const list = Array.isArray(data) ? data : data.opportunities || [];
     const updated = Array.isArray(data) ? null : data.updated;
 
-    state.all = list.filter((o) => (o.status || "live").toLowerCase() === "live");
+    state.all = sortByRecency(list.filter((o) => (o.status || "live").toLowerCase() === "live"));
 
     // Update hero stats (only present on homepage — safe null-check)
     if (statCount) statCount.textContent = state.all.length;
@@ -233,12 +831,12 @@ const COUNTRY_REGISTRY = [
   { name: "Senegal",         flag: "\u{1F1F8}\u{1F1F3}", aliases: ["senegal","senegalese","dakar"] },
   { name: "Tanzania",        flag: "\u{1F1F9}\u{1F1FF}", aliases: ["tanzania","tanzanian","dar es salaam","zanzibar","dodoma"] },
   { name: "Cameroon",        flag: "\u{1F1E8}\u{1F1F2}", aliases: ["cameroon","cameroonian","yaound","douala"] },
-  { name: "C\u00F4te d'Ivoire", flag: "\u{1F1E8}\u{1F1EE}", aliases: ["ivoire","ivory coast","ivorian","abidjan"] },
+  { name: "Côte d'Ivoire", flag: "\u{1F1E8}\u{1F1EE}", aliases: ["ivoire","ivory coast","ivorian","abidjan"] },
   { name: "Liberia",         flag: "\u{1F1F1}\u{1F1F7}", aliases: ["liberia","liberian","monrovia"] },
   { name: "Zambia",          flag: "\u{1F1FF}\u{1F1F2}", aliases: ["zambia","zambian","lusaka"] },
   { name: "Zimbabwe",        flag: "\u{1F1FF}\u{1F1FC}", aliases: ["zimbabwe","zimbabwean","harare"] },
   { name: "Botswana",        flag: "\u{1F1E7}\u{1F1FC}", aliases: ["botswana","gaborone"] },
-  { name: "Togo",            flag: "\u{1F1F9}\u{1F1EC}", aliases: ["togo","togolese","lom\u00E9","lome"] },
+  { name: "Togo",            flag: "\u{1F1F9}\u{1F1EC}", aliases: ["togo","togolese","lomé","lome"] },
   { name: "Mauritius",       flag: "\u{1F1F2}\u{1F1FA}", aliases: ["mauritius","mauritian","port louis"] },
   { name: "Mozambique",      flag: "\u{1F1F2}\u{1F1FF}", aliases: ["mozambique","mozambican","maputo"] },
   { name: "Malawi",          flag: "\u{1F1F2}\u{1F1FC}", aliases: ["malawi","malawian","lilongwe","blantyre"] },
@@ -392,7 +990,7 @@ function renderGrid() {
 // Toggle card expand/collapse
 function wireExpandButtons() {
   document.querySelectorAll(".opp-card").forEach((card) => {
-    // Track touch movement to distinguish a tap from a scroll gesture
+    // Distinguish a tap from a scroll gesture on touch devices
     let touchStartY = 0;
     let isTouchScrolling = false;
 
@@ -402,7 +1000,6 @@ function wireExpandButtons() {
     }, { passive: true });
 
     card.addEventListener("touchmove", (e) => {
-      // If the finger moved more than 8px vertically, it's a scroll not a tap
       if (Math.abs(e.touches[0].clientY - touchStartY) > 8) {
         isTouchScrolling = true;
       }
@@ -412,9 +1009,8 @@ function wireExpandButtons() {
     card.addEventListener("click", (e) => {
       // Don't expand if clicking a button, link, or the bookmark
       if (e.target.closest("a") || e.target.closest(".opp-bookmark")) return;
-      // On touch, skip if the user was scrolling
+      // On touch, bail if the user was scrolling rather than tapping
       if (isTouchScrolling) return;
-
       const isExpanded = card.classList.contains("is-expanded");
       card.classList.toggle("is-expanded");
       const btn = card.querySelector(".opp-expand-btn");
@@ -481,7 +1077,7 @@ function cardHTML(o, i) {
       }
 
       <div class="opp-actions">
-        <a href="${escapeAttr(o.apply_link || "#")}" target="_blank" rel="noopener" class="opp-apply">
+        <a href="${safeHref(o.apply_link, "#")}" target="_blank" rel="noopener" class="opp-apply">
           Apply →
         </a>
       </div>
@@ -769,6 +1365,18 @@ function escapeAttr(str) {
   return escapeHTML(str);
 }
 
+// Opportunity links come from the Sheet/JSON feed rather than being
+// typed by the viewing student, but escapeAttr alone only neutralizes
+// HTML metacharacters — it does nothing to stop a non-http(s) scheme
+// like "javascript:" from landing in a real href and running when
+// clicked. This is the actual gate on what's allowed there.
+function safeHref(url, fallback) {
+  if (typeof url === "string" && /^https?:\/\//i.test(url.trim())) {
+    return escapeAttr(url);
+  }
+  return escapeAttr(fallback);
+}
+
 function isDeadlinePassed(deadline) {
   if (!deadline) return false;
   const d = parseDeadline(deadline);
@@ -848,7 +1456,7 @@ if (!document.getElementById("opp-grid") &&
 
     } catch (e) {
       document.querySelectorAll("[data-live-count]").forEach((el) => {
-        if (el.textContent === "\u2014") el.textContent = "80+";
+        if (el.textContent === "—") el.textContent = "80+";
       });
     }
   })();
