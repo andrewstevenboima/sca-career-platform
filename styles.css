@@ -433,6 +433,75 @@ em { font-style: italic; color: var(--gold); }
 }
 
 /* -------------------------------------------------------------
+   Scroll indicator — mouse icon with animated dot
+   Sits at the bottom-centre of .hero / .page-header sections.
+   Fades out once the user scrolls past it (JS adds .is-hidden).
+   ------------------------------------------------------------- */
+.scroll-indicator {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  position: absolute;
+  bottom: 1.75rem;
+  left: 50%;
+  transform: translateX(-50%);
+  text-decoration: none;
+  color: inherit;
+  opacity: 1;
+  transition: opacity 0.4s ease;
+  z-index: 10;
+  pointer-events: auto;
+}
+.scroll-indicator.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+/* Mouse body */
+.scroll-mouse {
+  width: 26px;
+  height: 40px;
+  border: 2px solid currentColor;
+  border-radius: 13px;
+  position: relative;
+  display: flex;
+  justify-content: center;
+}
+/* Scrolling dot inside the mouse */
+.scroll-dot {
+  width: 4px;
+  height: 8px;
+  background: currentColor;
+  border-radius: 2px;
+  position: absolute;
+  top: 5px;
+  animation: scrollDot 1.6s ease-in-out infinite;
+}
+@keyframes scrollDot {
+  0%   { transform: translateY(0);    opacity: 1; }
+  60%  { transform: translateY(14px); opacity: 0.2; }
+  100% { transform: translateY(0);    opacity: 1; }
+}
+.scroll-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.7;
+}
+/* On the photo hero the text/borders are white */
+.hero-photo .scroll-indicator {
+  color: #fff;
+}
+/* On plain page-header keep it in the brand ink colour */
+.page-header {
+  position: relative; /* needed to anchor the absolute indicator */
+}
+.page-header .scroll-indicator {
+  color: var(--ink-soft);
+}
+
+/* -------------------------------------------------------------
    Quick start
    ------------------------------------------------------------- */
 .quick-start {
