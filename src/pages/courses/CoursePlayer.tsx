@@ -27,20 +27,15 @@ export default function CoursePlayer() {
   const [currentLesson, setCurrentLesson] = useState<string | undefined>(undefined);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // ── Auth gate ─────────────────────────────────────────────────────────────
-  if (!currentUser) {
-    return (
-      <Navigate
-        to="/login"
-        state={{ from: `/courses/${courseId}/learn` }}
-        replace
-      />
-    );
-  }
-
-  const uid = currentUser.uid;
+  const uid = currentUser?.uid;
 
   // ── Queries ───────────────────────────────────────────────────────────────
+  // All hooks (queries + the xAPI listener effect below) run unconditionally
+  // on every render. Every redirect/gate that used to sit between them has
+  // been moved below the last hook call, per the Rules of Hooks — otherwise
+  // the number of hooks called can differ between renders (e.g. the moment
+  // `enrollments` resolves from `[]` to a real list) and React throws or
+  // silently corrupts hook state.
   const { data: course, isLoading: courseLoading } = useQuery<Course | null>({
     queryKey: ['course', courseId],
     queryFn: () => getCourse(courseId!),
@@ -49,31 +44,21 @@ export default function CoursePlayer() {
 
   const { data: enrollments = [] } = useQuery<Enrollment[]>({
     queryKey: ['enrollments', uid],
-    queryFn: () => getUserEnrollments(uid),
+    queryFn: () => getUserEnrollments(uid!),
+    enabled: !!uid,
   });
 
   const { data: progress, refetch: refetchProgress } = useQuery<CourseProgress | null>({
     queryKey: ['progress-detail', uid, courseId],
-    queryFn: () => getProgress(uid, courseId!),
-    enabled: !!courseId,
+    queryFn: () => getProgress(uid!, courseId!),
+    enabled: !!uid && !!courseId,
   });
 
   const enrollment = enrollments.find((e) => e.courseId === courseId);
 
-  // ── Enrollment gates ──────────────────────────────────────────────────────
-  // pending_payment: redirect to detail page
-  if (enrollment?.status === 'pending_payment') {
-    toast.info('Your payment is being reviewed.');
-    return <Navigate to={`/courses/${courseId}`} replace />;
-  }
-
-  // Not enrolled at all: redirect to detail page
-  if (enrollments.length > 0 && !enrollment) {
-    return <Navigate to={`/courses/${courseId}`} replace />;
-  }
-
   // ── xAPI / SCORM progress listener ───────────────────────────────────────
   useEffect(() => {
+    if (!uid || !courseId) return;
     const handler = (e: MessageEvent) => {
       if (!e.data) return;
       const pct: number | null =
@@ -82,7 +67,7 @@ export default function CoursePlayer() {
           : e.data.verb === 'completed'
           ? 100
           : null;
-      if (pct !== null && courseId) {
+      if (pct !== null) {
         updateProgress(uid, courseId, pct, e.data as Record<string, unknown>).catch(
           console.error,
         );
@@ -99,12 +84,35 @@ export default function CoursePlayer() {
     return () => window.removeEventListener('message', handler);
   }, [uid, courseId, refetchProgress]);
 
+  // ── Auth gate ─────────────────────────────────────────────────────────────
+  if (!currentUser) {
+    return (
+      <Navigate
+        to="/login"
+        state={{ from: `/courses/${courseId}/learn` }}
+        replace
+      />
+    );
+  }
+
+  // ── Enrollment gates ──────────────────────────────────────────────────────
+  // pending_payment: redirect to detail page
+  if (enrollment?.status === 'pending_payment') {
+    toast.info('Your payment is being reviewed.');
+    return <Navigate to={`/courses/${courseId}`} replace />;
+  }
+
+  // Not enrolled at all: redirect to detail page
+  if (enrollments.length > 0 && !enrollment) {
+    return <Navigate to={`/courses/${courseId}`} replace />;
+  }
+
   // ── Mark complete handler ─────────────────────────────────────────────────
   const handleMarkComplete = async () => {
     if (!courseId) return;
     setMarking(true);
     try {
-      await updateProgress(uid, courseId, 100);
+      await updateProgress(currentUser.uid, courseId, 100);
       await refetchProgress();
       toast.success('Course marked as complete!');
     } catch (err) {

@@ -40,15 +40,13 @@ export default function CourseCatalog() {
   const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [activeFilter, setActiveFilter] = useState<FilterValue>('');
-
-  // Redirect unauthenticated users
-  if (!currentUser) {
-    return <Navigate to="/login" state={{ from: '/courses' }} replace />;
-  }
-
-  const uid = currentUser.uid;
+  const uid = currentUser?.uid;
 
   // ── Queries ──────────────────────────────────────────────────────────────
+  // All hooks run unconditionally, on every render — the auth redirect below
+  // only happens after every hook below has been called, per the Rules of
+  // Hooks. (Queries that need a signed-in user are gated with `enabled`
+  // instead of being skipped via an early return.)
   const { data: allCourses = [], isLoading: coursesLoading } = useQuery<Course[]>({
     queryKey: ['courses'],
     queryFn: () => getCourses(),
@@ -56,11 +54,9 @@ export default function CourseCatalog() {
 
   const { data: enrollments = [] } = useQuery<Enrollment[]>({
     queryKey: ['enrollments', uid],
-    queryFn: () => getUserEnrollments(uid),
+    queryFn: () => getUserEnrollments(uid!),
+    enabled: !!uid,
   });
-
-  // Build lookup maps
-  const enrollmentMap = new Map(enrollments.map((e) => [e.courseId, e]));
 
   // Fetch progress for each enrolled course
   const enrolledCourseIds = enrollments.map((e) => e.courseId);
@@ -71,7 +67,7 @@ export default function CourseCatalog() {
     queryFn: async () => {
       const entries = await Promise.all(
         enrolledCourseIds.map(async (id) => {
-          const p = await getProgress(uid, id);
+          const p = await getProgress(uid!, id);
           return [id, p] as [string, CourseProgress | null];
         }),
       );
@@ -81,8 +77,16 @@ export default function CourseCatalog() {
       }
       return map;
     },
-    enabled: enrolledCourseIds.length > 0,
+    enabled: !!uid && enrolledCourseIds.length > 0,
   });
+
+  // Redirect unauthenticated users — after every hook above has run.
+  if (!currentUser) {
+    return <Navigate to="/login" state={{ from: '/courses' }} replace />;
+  }
+
+  // Build lookup maps
+  const enrollmentMap = new Map(enrollments.map((e) => [e.courseId, e]));
 
   // ── Filtering ────────────────────────────────────────────────────────────
   const filteredCourses = allCourses.filter((course) => {
