@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { Navigate, useNavigate } from "react-router-dom";
+import { Navigate, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { ArrowRight, Mail, MapPin } from "lucide-react";
 
@@ -533,11 +533,18 @@ export default function LandingPage() {
 
         {/* Footer */}
         <div className="border-t border-white/10">
-          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <div className="max-w-6xl mx-auto px-5 sm:px-8 py-6 flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2.5">
               <img src={LOGO} alt="Student Companion AI" className="w-7 h-7 rounded-lg object-cover opacity-90" />
               <span className="text-sm text-white/50">Student Companion AI</span>
             </div>
+            <nav className="flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-xs text-white/40">
+              <Link to="/about" className="hover:text-white/80">About</Link>
+              <Link to="/sources" className="hover:text-white/80">Sources</Link>
+              <Link to="/cv-checker" className="hover:text-white/80">CV Checker</Link>
+              <Link to="/privacy" className="hover:text-white/80">Privacy</Link>
+              <Link to="/terms" className="hover:text-white/80">Terms</Link>
+            </nav>
             <p className="text-xs text-white/30">
               © {new Date().getFullYear()} Student Companion AI · Built for students.
             </p>

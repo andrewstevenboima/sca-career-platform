@@ -35,6 +35,11 @@ const CourseCatalog       = lazy(() => import("./pages/courses/CourseCatalog"));
 const CourseDetail        = lazy(() => import("./pages/courses/CourseDetail"));
 const CoursePlayer        = lazy(() => import("./pages/courses/CoursePlayer"));
 const CourseManager       = lazy(() => import("./pages/admin/CourseManager"));
+const About             = lazy(() => import("./pages/About"));
+const Sources           = lazy(() => import("./pages/Sources"));
+const Privacy           = lazy(() => import("./pages/Privacy"));
+const Terms             = lazy(() => import("./pages/Terms"));
+const CvChecker         = lazy(() => import("./pages/CvChecker"));
 
 // ── Page title map ────────────────────────────────────────────────────────────
 const TITLE_MAP: Record<string, string> = {
@@ -56,6 +61,11 @@ const TITLE_MAP: Record<string, string> = {
   "/courses":            "Learning Hub — Student Companion AI",
   "/courses/:courseId":  "Course — Student Companion AI",
   "/courses/:courseId/learn": "Learn — Student Companion AI",
+  "/about":              "About — Student Companion AI",
+  "/sources":            "Sources — Student Companion AI",
+  "/privacy":            "Privacy Policy — Student Companion AI",
+  "/terms":              "Terms of Use — Student Companion AI",
+  "/cv-checker":         "CV Readiness Checker — Student Companion AI",
 };
 
 // ── Thin fallback spinner shown while a lazy chunk loads ──────────────────────
@@ -110,6 +120,11 @@ function App() {
               <Route path="/login"           element={<Login />} />
               <Route path="/signup"          element={<Signup />} />
               <Route path="/forgot-password" element={<ForgotPassword />} />
+              <Route path="/about"           element={<About />} />
+              <Route path="/sources"         element={<Sources />} />
+              <Route path="/privacy"         element={<Privacy />} />
+              <Route path="/terms"           element={<Terms />} />
+              <Route path="/cv-checker"      element={<CvChecker />} />
 
               {/* Protected app */}
               <Route path="/chat" element={<ProtectedRoute><Index /></ProtectedRoute>} />
