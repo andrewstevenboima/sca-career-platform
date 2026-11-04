@@ -1,172 +1,149 @@
-# SCA Career Platform
+# ALU Student Companion
 
-A curated job and opportunity platform for African undergraduate students, with student accounts and saved opportunities.
-A product of **Student Companion AI** (studentcompanionai.xyz).
+A mobile-first, AI-powered peer assistant for African Leadership University (ALU)
+students. It answers questions about academics, campus life, policies, and
+opportunities in a warm, peer-companion voice — and when it doesn't know, it says
+so and points to where to look, instead of inventing an answer.
 
-Forked from [`sca-opportunities`](https://github.com/andrewstevenboima/sca-opportunities) (the site live at career.studentcompanionai.rw) and extended with the accounts/save-for-later idea explored in [`africa-jobs-mru-v2`](https://github.com/andrewstevenboima/africa-jobs-mru-v2).
-
-**Stack:**
-- Static site (HTML/CSS/JS), hosted on GitHub Pages. No build step, no framework.
-- **Job listings** — Google Sheets, served through a Google Apps Script web app (unchanged from `sca-opportunities`).
-- **Accounts + saved opportunities** — [Supabase](https://supabase.com) (Postgres + Auth), free tier.
-
-Two backends, on purpose: the Sheet stays the easy admin panel for posting jobs, Supabase only owns login and bookmarks. See "Why Supabase" below.
+This repository is the **frontend**: an installable Progressive Web App built with
+React, TypeScript, and Vite, deployed on Vercel. It talks to a separate
+Retrieval-Augmented Generation (RAG) backend (FastAPI on a Hugging Face Space)
+that grounds every answer in ALU's official knowledge base.
 
 ---
 
-## What's new vs. `sca-opportunities`
+## Features
 
-- **Student accounts** (`login.html`) — email/password signup and login via Supabase Auth.
-- **Pilot region scope** — signup is currently open to **East Africa** and **West Africa** only (see `js/regions.js` for the country list). Browsing and applying to opportunities never requires an account, same as before.
-- **Saved opportunities** (`account.html`) — logged-in students can save a listing from the ★ button on any card; saves persist across devices via Supabase, and show up on the account page with quick-remove.
-- **Guests still get session-only bookmarks**, exactly like the original site — logging in is what upgrades a bookmark from "this tab only" to "saved to my account."
-
----
-
-## Why Supabase (and why keep Google Sheets too)
-
-You asked specifically about free hosting/database options for this — here's the reasoning:
-
-| Need | Choice | Why |
-|---|---|---|
-| Job listings (content an admin edits by hand) | **Google Sheets + Apps Script** (existing) | Zero cost, zero code to add a row, already working. No reason to migrate content editors to a database. |
-| Accounts, passwords, saved jobs (structured, per-user, needs security rules) | **Supabase** | Free tier: 500MB Postgres DB, 50k monthly active users, built-in Auth (email/password out of the box, OTP/social login if you want it later), and Row Level Security so each student can only ever read their own profile/bookmarks — enforced by the database, not just the frontend. |
-
-Free-tier things to know before you scale past a pilot:
-- Supabase's free project **pauses after 7 days of no API activity** — a visit un-pauses it in seconds, but a truly dormant project needs a manual "restore" click in the dashboard. Fine for a pilot; worth knowing before a demo.
-- 500MB and 50k MAU is enormous headroom for a two-region pilot — you will not hit this before you outgrow the free tier of almost anything else first.
-- Alternative considered: Firebase (Auth + Firestore) — also free and solid, but NoSQL, and the country/eligibility filtering this site already does reads naturally as relational data. Supabase is Postgres, so `regions.js` and the Sheet's `eligibility_*` columns map cleanly if you ever want to join saved-jobs data against listing metadata server-side.
+- **Grounded AI chat** — answers are retrieved from ALU's knowledge base and
+  cited inline, not hallucinated.
+- **Streaming responses** with automatic non-streaming fallback.
+- **Firebase authentication** — email/password sign-in, with an admin area gated
+  server-side.
+- **Opportunities feed** — scholarships, internships, and programs.
+- **News** and **document** sections.
+- **Profile & settings**, including an admin console for knowledge-base status.
+- **Installable PWA** — works like a native app on a phone.
 
 ---
 
-## File structure
+## Tech stack
 
-```
-sca-career-platform/
-├── index.html                  # home
-├── opportunities.html          # browse + save opportunities
-├── login.html                  # log in / sign up (East & West Africa pilot)
-├── account.html                # profile + saved opportunities
-├── about.html, sources.html, match.html, privacy.html, terms.html
-├── styles.css                  # white/gold editorial design (unchanged)
-├── auth.css                    # login/account page styles only
-├── legal.css
-├── script.js                   # main site logic (opportunities grid, bookmarks)
-├── match.js                    # CV Checker logic (loads its own nav script, see below)
-├── js/
-│   ├── regions.js               # East & West Africa country list for signup
-│   ├── supabase-client.js       # Supabase init + auth/bookmark helpers (window.SCA)
-│   ├── auth-page.js              # login.html form logic
-│   ├── account-page.js           # account.html profile/bookmarks logic
-│   └── site-nav.js               # mobile nav + auth-aware nav links, for match.html only
-│                                    (match.js declares its own top-level `state`/`$`/
-│                                    APPS_SCRIPT_URL, so match.html can't also load
-│                                    script.js — they'd collide)
-├── opportunities.json          # fallback sample data
-├── Code.gs                     # Google Apps Script backend (unchanged)
-├── supabase/
-│   └── schema.sql               # run once in Supabase's SQL editor — creates
-│                                   profiles + bookmarks tables and RLS policies
-├── assets/
-└── README.md
-```
+| Layer        | Technology                                              |
+| ------------ | ------------------------------------------------------- |
+| Framework    | React 18 + TypeScript                                   |
+| Build tool   | Vite 5                                                  |
+| UI           | Tailwind CSS + shadcn/ui (Radix primitives)             |
+| Auth         | Firebase Authentication                                 |
+| Backend      | FastAPI on a Hugging Face Space (separate repo)         |
+| AI           | Anthropic Claude API, RAG over ChromaDB                 |
+| Knowledge    | Google Sheet → Apps Script → ChromaDB (auto-synced)     |
+| Hosting      | Vercel                                                  |
 
 ---
 
-## Setup
+## How it works
 
-### Part A — Job listings (Google Sheets)
+1. The frontend sends a student's question to the backend.
+2. The backend embeds the question (`all-MiniLM-L6-v2`) and runs a vector search
+   against **ChromaDB**, returning the most semantically relevant entries from
+   ALU's knowledge base.
+3. Those entries are stitched into a carefully engineered system prompt and sent
+   to the **Claude API**.
+4. Claude reasons over the retrieved context and answers in a peer voice, citing
+   official ALU URLs inline.
+5. The answer streams back to the student's device.
 
-Unchanged from `sca-opportunities`. Follow the original 4 steps:
-
-1. Create a Google Sheet named **SCA Opportunities Database**, with an `Opportunities` tab (columns: `id | category | title | organization | location | remote | deadline | eligibility_year | eligibility_nationality | field | tags | description | apply_link | source | status | date_posted`) and a `Subscribers` tab (`email | consent_timestamp | source_page`).
-2. Deploy `Code.gs` as an Apps Script Web App (**Execute as: Me**, **Who has access: Anyone**), and copy the Web App URL.
-3. Paste that URL into `APPS_SCRIPT_URL` near the top of `script.js`.
-4. Seed a few rows — copy from `opportunities.json` as a starting point.
-
-If you skip this, the site falls back to `opportunities.json` automatically, so you can preview everything else first.
-
-### Part B — Accounts & saved opportunities (Supabase)
-
-1. Go to [supabase.com](https://supabase.com) → **New project** (free tier, no card required). Pick a region close to your users — Supabase doesn't have an East/West Africa region yet, so `eu-west` (Ireland) or `eu-central` (Frankfurt) is typically the lowest-latency choice.
-2. Once the project is ready: **SQL Editor → New query**, paste the entire contents of `supabase/schema.sql`, and click **Run**. This creates the `profiles` and `bookmarks` tables with Row Level Security already locked down (a user can only ever see their own rows).
-3. **Project Settings → API** — copy the **Project URL** and the **anon public** key.
-4. Open `js/supabase-client.js` and replace:
-   ```js
-   const SUPABASE_URL = "REPLACE_WITH_YOUR_SUPABASE_PROJECT_URL";
-   const SUPABASE_ANON_KEY = "REPLACE_WITH_YOUR_SUPABASE_ANON_KEY";
-   ```
-   The anon key is safe to ship in client-side code — it's what Supabase's docs call the "publishable" key; the RLS policies from step 2 are what actually protect the data, not secrecy of this key.
-5. **Authentication → Providers**, confirm **Email** is enabled. Optional but recommended for a real launch: **Authentication → URL Configuration**, set the Site URL to your GitHub Pages / custom domain, and consider turning off "Confirm email" while you're testing locally (`http://localhost`) since confirmation links point at whatever Site URL is configured.
-
-Until you complete this part, `login.html` and `account.html` will show "Accounts aren't set up yet" instead of erroring — the rest of the site works exactly as before.
-
-### Part C — Publish to GitHub Pages
-
-1. Push this repo to GitHub (already done if you're reading this from the repo).
-2. **Settings → Pages** → Source: **Deploy from a branch** → `main` / `(root)`.
-3. **Not yet connected to career.studentcompanionai.rw.** That domain's `CNAME` currently points at the `sca-opportunities` repo, which is what's live in production. This repo intentionally does **not** include a `CNAME` file yet, so publishing it won't fight the existing DNS record. When you're ready to cut over:
-   - Add a `CNAME` file here containing `career.studentcompanionai.rw`, and
-   - Repoint the domain's DNS/Pages setting to this repo,
-   - at which point you'd retire `sca-opportunities` as the live site (or keep it as a staging copy).
+Knowledge is maintained by staff in a single **Google Sheet** — no code, no PRs.
+An Apps Script publishes the Sheet as JSON, and the backend polls it, re-embeds
+changed rows, and updates ChromaDB within minutes. See
+[ARCHITECTURE.md](ARCHITECTURE.md) for the full picture.
 
 ---
 
-## Region scope (East & West Africa pilot)
+## Getting started
 
-`js/regions.js` defines the two region lists used by the signup form:
+### Prerequisites
 
-- **East Africa:** Rwanda, Kenya, Uganda, Tanzania, Burundi, Ethiopia, South Sudan, Somalia, Djibouti
-- **West Africa:** Nigeria, Ghana, Senegal, Côte d'Ivoire, Sierra Leone, Liberia, Guinea, Mali, Burkina Faso, Benin, Togo, Niger, The Gambia, Guinea-Bissau, Cabo Verde, Mauritania
+- Node.js 18+ (or [Bun](https://bun.sh))
+- A Firebase project (for auth)
 
-This restricts what a student can pick when creating an account — it does **not** restrict which job listings show up (those still come from the Sheet, unfiltered by region, same as `sca-opportunities`). To add more countries/regions later, just extend the object in `js/regions.js` — no schema change needed, since `profiles.region`/`profiles.country` are plain text columns.
-
----
-
-## Daily workflow — posting an opportunity
-
-Unchanged: open the Google Sheet, add a row to `Opportunities`, set `status` to `live`. The site fetches fresh on every load, no cache.
-
----
-
-## Testing locally
+### Install
 
 ```bash
-python3 -m http.server 8000
+npm install
+# or
+bun install
 ```
 
-Open [http://localhost:8000](http://localhost:8000). Without a configured Supabase project, `opportunities.html` works exactly like the original site (session-only bookmarks); `login.html`/`account.html` show a "not set up yet" message instead of crashing.
+### Configure environment
+
+Copy the example file and fill in your values:
+
+```bash
+cp .env.example .env
+```
+
+| Variable                            | Description                                              |
+| ----------------------------------- | -------------------------------------------------------- |
+| `VITE_API_URL`                      | Backend base URL (Hugging Face Space or `localhost`)     |
+| `VITE_FIREBASE_API_KEY`             | Firebase web API key (restrict by HTTP referrer)         |
+| `VITE_FIREBASE_AUTH_DOMAIN`         | Firebase auth domain                                     |
+| `VITE_FIREBASE_PROJECT_ID`          | Firebase project ID                                      |
+| `VITE_FIREBASE_STORAGE_BUCKET`      | Firebase storage bucket                                  |
+| `VITE_FIREBASE_MESSAGING_SENDER_ID` | Firebase messaging sender ID                             |
+| `VITE_FIREBASE_APP_ID`              | Firebase app ID                                          |
+
+> **Note:** `.env` is gitignored and must never be committed. Admin identity is
+> decided **server-side** by the backend (`ADMIN_EMAILS` secret), never in the
+> client bundle — there is intentionally no admin email list here.
+
+### Run
+
+```bash
+npm run dev        # start the dev server on http://localhost:3000
+npm run build      # production build to dist/
+npm run preview    # preview the production build
+npm run lint       # lint the codebase
+```
 
 ---
 
-## Privacy posture
+## Project structure
 
-- Job browsing still collects no personal data.
-- Creating an account collects: email, password (hashed by Supabase Auth, never touched by this code), full name, region, country, year of study, and optionally university — all supplied by the student at signup, stored in `profiles`, readable only by that student (RLS).
-- Saved opportunities (`bookmarks`) are likewise readable only by the student who saved them.
-- Same newsletter email-capture flow as before remains on `index.html`/Google Sheets, unrelated to accounts.
-
-Update `privacy.html` before a real launch to describe the account data above, in line with Rwanda's Law N° 058/2021 and similar frameworks.
-
----
-
-## Future upgrades
-
-- **Expand beyond East/West Africa** — extend `js/regions.js`; no backend change required.
-- **Personalized matching** — join `profiles.year_of_study`/`field` against listing eligibility to rank cards.
-- **Social login** (Google, etc.) — Supabase Auth supports this; just enable the provider in the dashboard and add a button.
-- **Auto-refresh hook** — still marked `// TODO` in `script.js`, unchanged from the original.
+```
+src/
+├── components/     UI components (chat, layout, shadcn/ui primitives)
+├── config/         API base URL, auth headers, fetch helpers
+├── contexts/       React context providers (auth, etc.)
+├── hooks/          Custom React hooks
+├── lib/            Firebase init and shared utilities
+├── pages/          Route pages (Index, Login, Opportunities, News, admin, …)
+├── services/       Backend API clients (aiService, opportunitiesService, …)
+├── types/          Shared TypeScript types
+└── utils/          Helpers
+```
 
 ---
 
-## Credits
+## Deployment
 
-Built for Student Companion AI by Andrew Boima.
-Opportunities data curated from: ALU, Mastercard Foundation, UN Careers, Chevening, DAAD, Commonwealth Scholarships, Erasmus+, and other reputable sources.
-Accounts/save-for-later concept adapted from `africa-jobs-mru-v2`.
+The app is deployed on **Vercel** from this repository's `main` branch.
+
+- Production branch: `main`
+- Build command: `npm run build`
+- Output directory: `dist`
+- SPA routing is handled by the rewrite in [vercel.json](vercel.json).
+
+Set `VITE_API_URL` and the `VITE_FIREBASE_*` variables in the Vercel project's
+**Environment Variables** (Production scope). The backend URL must point at the
+live Hugging Face Space; the production default lives in
+[src/config/api.ts](src/config/api.ts).
+
+A push to `main` triggers a production build automatically.
 
 ---
 
 ## License
 
-All code © Student Companion AI. Opportunity data sourced from public-facing program announcements — always verify current deadlines with the original source.
+Internal project for African Leadership University. All rights reserved unless
+stated otherwise.
