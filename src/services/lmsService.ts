@@ -13,6 +13,7 @@ import {
 } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import type { Course, Enrollment, CourseProgress, CourseFilter, PaymentRequest } from '@/types/lms';
+import { getLibraryCourses, getLibraryCourse, isLibraryCourseId } from './courseLibrary';
 
 const PAYMENT_REQUESTS_COL = 'paymentRequests';
 
@@ -22,7 +23,41 @@ const PROGRESS_COL = 'courseProgress';
 
 // ─── Courses ─────────────────────────────────────────────────────────────────
 
+/**
+ * Published courses: those published from the SCAI-LMS GitHub library first,
+ * then any added by hand in Firestore. Either source failing leaves the other.
+ */
 export async function getCourses(filter?: CourseFilter): Promise<Course[]> {
+  const [library, firestore] = await Promise.all([
+    getLibraryCourses(),
+    getFirestoreCourses(filter).catch((err) => {
+      console.warn('[lms] Firestore courses unavailable:', err);
+      return [] as Course[];
+    }),
+  ]);
+  const libraryMatches = library.filter(
+    (c) =>
+      (!filter?.category || c.category === filter.category) &&
+      (!filter?.level || c.level === filter.level) &&
+      (!filter?.free || c.price === 0),
+  );
+  return applySearch([...libraryMatches, ...firestore], filter?.search);
+}
+
+function applySearch(courses: Course[], search?: string): Course[] {
+  if (!search) return courses;
+  const term = search.toLowerCase();
+  return courses.filter(
+    (c) =>
+      c.title.toLowerCase().includes(term) ||
+      c.subtitle.toLowerCase().includes(term) ||
+      c.description.toLowerCase().includes(term) ||
+      c.tags.some((t) => t.toLowerCase().includes(term)) ||
+      (c.lessons ?? []).some((l) => l.toLowerCase().includes(term)),
+  );
+}
+
+async function getFirestoreCourses(filter?: CourseFilter): Promise<Course[]> {
   const ref = collection(db, COURSES_COL);
   // Base constraint: published only
   const constraints: QueryConstraint[] = [where('isPublished', '==', true)];
@@ -40,23 +75,11 @@ export async function getCourses(filter?: CourseFilter): Promise<Course[]> {
   constraints.push(orderBy('createdAt', 'desc'));
 
   const snap = await getDocs(query(ref, ...constraints));
-  const courses = snap.docs.map((d) => ({ id: d.id, ...d.data() } as Course));
-
-  if (filter?.search) {
-    const term = filter.search.toLowerCase();
-    return courses.filter(
-      (c) =>
-        c.title.toLowerCase().includes(term) ||
-        c.subtitle.toLowerCase().includes(term) ||
-        c.description.toLowerCase().includes(term) ||
-        c.tags.some((t) => t.toLowerCase().includes(term)),
-    );
-  }
-
-  return courses;
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Course));
 }
 
 export async function getCourse(id: string): Promise<Course | null> {
+  if (isLibraryCourseId(id)) return getLibraryCourse(id);
   const ref = doc(db, COURSES_COL, id);
   const snap = await getDoc(ref);
   if (!snap.exists()) return null;

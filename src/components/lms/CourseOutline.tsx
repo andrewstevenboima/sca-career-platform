@@ -22,6 +22,14 @@ interface ModuleEntry {
 }
 
 function buildModules(course: Course): ModuleEntry[] {
+  // Courses from the GitHub library carry their real lesson titles.
+  if (course.lessons && course.lessons.length > 0) {
+    return course.lessons.map((title, i) => ({
+      id: `module-${i + 1}`,
+      title: `Lesson ${i + 1}: ${title}`,
+      description: `Part of ${course.title}.`,
+    }));
+  }
   return Array.from({ length: course.lessonsCount }, (_, i) => {
     const num = i + 1;
     return {
