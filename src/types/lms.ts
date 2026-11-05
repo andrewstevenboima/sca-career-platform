@@ -16,6 +16,10 @@ export interface Course {
   isFeatured: boolean;
   trialModuleId?: string;
   scormUrl: string;
+  /** Lesson titles, when known (courses from the GitHub library). */
+  lessons?: string[];
+  /** 'github' for courses published from the SCAI-LMS repo; Firestore otherwise. */
+  source?: 'github' | 'firestore';
   createdAt?: unknown;
   updatedAt?: unknown;
 }
